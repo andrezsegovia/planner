@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — add this repository to Vim and the shell, and create the data
+# install.sh — add this repository to Vim and the shell, and create the planner
 # directories. Safe to run again; the managed block is replaced, not duplicated.
 #
 #   ./install.sh

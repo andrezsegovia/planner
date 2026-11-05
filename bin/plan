@@ -143,16 +143,22 @@ case "$cmd" in
       || die "$ROOT is not a git repository"
     git -C "$ROOT" remote get-url origin >/dev/null 2>&1 \
       || die "no origin remote in $ROOT (git remote add origin <url>)"
+    upstream=0
     if git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+      upstream=1
       git -C "$ROOT" pull --rebase --autostash
     fi
     git -C "$ROOT" add -A
     if ! git -C "$ROOT" diff --cached --quiet; then
-      git -C "$ROOT" commit -m "${1:-planner: $(date +%F %H:%M)}"
+      git -C "$ROOT" commit -m "${*:-planner: $(date +%F %H:%M)}"
     else
       printf 'nothing to commit\n'
     fi
-    git -C "$ROOT" push
+    if [[ $upstream -eq 1 ]]; then
+      git -C "$ROOT" push
+    else
+      git -C "$ROOT" push -u origin HEAD
+    fi
     ;;
 
   today|day)

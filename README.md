@@ -35,7 +35,9 @@ Nothing else is touched. `./uninstall.sh` removes the two blocks and keeps your
 data.
 
 The clone can live anywhere, not just `~/reps/planner`: the script, Vim file,
-shell file, and installer all derive their paths from their own location.
+shell file, and installer all derive their paths from their own location. If
+you move or re-clone the repository, run `./install.sh` again so the two source
+lines in your dotfiles point at the new path.
 
 ### Without the installer
 

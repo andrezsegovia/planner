@@ -195,6 +195,137 @@ plan sync "weekly review"
 The review produces next week's focus per project. If a project has no outcome
 or no movement for two weeks, pause or archive it.
 
+## Long projects
+
+Plan on a rolling horizon: the year loosely, the quarter in `goals.md`, the next
+milestone in detail, the day in one focus.
+
+| Horizon | Where | Question |
+|---|---|---|
+| Year | project `outcome` + `deadline` | Why is this worth months? |
+| Quarter | `goals.md` | What must be true in 90 days? |
+| Month | project `## Milestones` | What verifiable checkpoint is next? |
+| Week | weekly review | What moves that milestone? |
+| Day | daily `## Focus` | What is the one thing today? |
+
+Rules for work that lasts months:
+
+1. **Outcome, not activity.** "v1 is deployed and 10 people signed up", not
+   "work on the app". If you cannot tell when it is done, it is an area, not a
+   project.
+2. **Milestones every 2–6 weeks.** Each one is a demo, a measurement, or a
+   shippable slice. The first unchecked milestone is the current one.
+3. **Only detail the current milestone.** Everything else goes under `Later`.
+   A year of tasks in the file is a backlog, not a plan.
+4. **One next action.** If it takes more than a day, split it.
+5. **Re-estimate monthly.** Slip is information: cut scope, move dates, or
+   pause the project. Do not quietly carry stale milestones.
+6. **Split phases into projects.** A year-long effort usually becomes 3–5
+   sequential projects; archive each one when its outcome is true.
+
+### Example: a software project
+
+```markdown
+---
+type: project
+status: active
+outcome: v1 is deployed and 10 people have created an account
+deadline: 2027-03-31
+created: 2026-11-05
+---
+# Product v1
+
+## Milestones
+- [ ] M1 — Signup and login work on staging #milestone due:2026-11-30
+- [ ] M2 — Create, save and reopen a document #milestone due:2026-12-31
+- [ ] M3 — 10 beta users invited and giving feedback #milestone due:2027-02-15
+- [ ] M4 — Public launch #milestone due:2027-03-31
+
+## Current milestone
+M1 — signup and login on staging
+
+### Next action
+- [ ] Add session-cookie handling to the login route #product due:2026-11-08
+
+### Tasks
+- [ ] Write the auth integration test #product
+- [ ] Add staging env vars #product @waiting
+
+## Later
+- Password reset
+- Billing
+- Mobile layout
+
+## Log
+- 2026-11-05 chose session cookies over JWT
+```
+
+At the weekly review, ask only: did the current milestone move? If not, is the
+next action wrong?
+
+### Example: learning a language
+
+Language learning is a long-lived area with recurring practice, not a single
+project. Model it as:
+
+- a sequence of projects with finish lines (A2, B1, B2, "20-minute
+  conversation");
+- a weekly practice target tracked in the review;
+- time in the log.
+
+```markdown
+---
+type: project
+status: active
+outcome: hold a 20-minute conversation about work and daily life
+deadline: 2027-06-30
+created: 2026-11-05
+---
+# Spanish B1 conversation
+
+## Milestones
+- [ ] M1 — 500 most common words, present tense #milestone due:2026-12-15
+- [ ] M2 — 10 tutoring sessions, past tense #milestone due:2027-02-28
+- [ ] M3 — 5 conversations with native speakers #milestone due:2027-04-30
+- [ ] M4 — 20 minutes without switching to English #milestone due:2027-06-30
+
+## Current milestone
+M1 — core vocabulary and present tense
+
+### Next action
+- [ ] Book the first tutoring session #spanish due:2026-11-07
+
+### Tasks
+- [ ] Finish unit 3 of the textbook #spanish
+
+## Weekly target
+- 4 × 45 min study sessions
+- 2 × 30 min listening
+
+## Later
+- Read a short novel
+- Watch a series without subtitles
+
+## Log
+- 2026-11-05 started; textbook + Anki + tutor
+```
+
+Habits (Anki, listening) do not belong as checkboxes; they belong in the daily
+commitments and the weekly target. The project tracks the finish line, the
+habit keeps the volume. Track the practice with
+`plan log 45m spanish anki` and look at `plan report month`.
+
+### Monthly review
+
+On the first Friday of the month, in addition to the weekly review:
+
+- `plan report month` — where did the hours actually go?
+- `plan due 30` — what is due this month?
+- `plan stale 21` — what has not moved?
+- For each active project: is the current milestone still the right one? Is its
+  date credible? Cut scope before moving the date.
+- Update `goals.md` if the quarter changed.
+
 ## Commands
 
 | Command | What it does |

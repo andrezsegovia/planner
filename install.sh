@@ -68,7 +68,7 @@ Installed.
 
   Vim:    $VIMRC now sources $ROOT/integrations/vim/planner.vim
   Shell:  $BASHRC now sources $ROOT/integrations/shell/planner.sh
-  Data:   ${PLANNER_DATA:-$ROOT/data}
+  Planner: ${PLANNER_DIR:-$ROOT}
 
 Open a new terminal (or run: source "$BASHRC") and start with:
 

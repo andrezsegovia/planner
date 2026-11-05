@@ -7,9 +7,9 @@
 set -euo pipefail
 
 # All paths are derived from this script, so the repo can be cloned anywhere.
-# Runtime data lives in ROOT/data and is gitignored; PLANNER_DATA overrides it.
+# The repo root is the planner; PLANNER_DIR overrides it (used by tests).
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA_DIR="${PLANNER_DATA:-$ROOT/data}"
+PLANNER_DIR="${PLANNER_DIR:-$ROOT}"
 
 die() { printf 'plan: %s\n' "$*" >&2; exit 1; }
 
@@ -17,7 +17,8 @@ usage() {
   cat <<'EOF'
 plan — markdown planner
 
-  plan init                 create the data directories and starter files
+  plan init                 create the planner directories and starter files
+  plan sync [message]       pull, commit everything, push (git sync)
   plan                      open (or create) today's plan
   plan today                same as above
   plan week [OFFSET]        open the weekly review (OFFSET in weeks, e.g. -1)
@@ -45,23 +46,22 @@ plan — markdown planner
                             (used by the Vim mappings)
 
 Files:
-  data/            gitignored: inbox.md, goals.md, projects/, daily/,
-                   weekly/, log/, archive/
+  inbox.md  goals.md  projects/  daily/  weekly/  log/  archive/
   templates/       starters copied by `plan init` and the commands
   bin/plan         this script
   integrations/    Vim and shell configuration (installed by install.sh)
 
 Environment:
-  PLANNER_DATA     override the data directory (default: <repo>/data)
+  PLANNER_DIR      override the planner directory (default: the repo root)
   EDITOR           editor used by `plan today`, `plan week`, ... (default: vim)
 EOF
 }
 
 ensure_today() {
   local f
-  f="$DATA_DIR/daily/$(date +%F).md"
+  f="$PLANNER_DIR/daily/$(date +%F).md"
   if [[ ! -f "$f" ]]; then
-    mkdir -p "$DATA_DIR/daily"
+    mkdir -p "$PLANNER_DIR/daily"
     sed -e "s|{{DATE}}|$(date +%F)|g" \
         -e "s|{{DOW}}|$(date +%A)|g" \
         "$ROOT/templates/daily.md" > "$f"
@@ -76,9 +76,9 @@ ensure_week() {
   mon=$(date -d "$base -$((dow - 1)) days" +%F)
   sun=$(date -d "$mon +6 days" +%F)
   week=$(date -d "$base" +%G-W%V)
-  f="$DATA_DIR/weekly/$week.md"
+  f="$PLANNER_DIR/weekly/$week.md"
   if [[ ! -f "$f" ]]; then
-    mkdir -p "$DATA_DIR/weekly"
+    mkdir -p "$PLANNER_DIR/weekly"
     sed -e "s|{{ISOWEEK}}|$week|g" \
         -e "s|{{MON}}|$mon|g" \
         -e "s|{{SUN}}|$sun|g" \
@@ -88,9 +88,9 @@ ensure_week() {
 }
 
 ensure_inbox() {
-  local f="$DATA_DIR/inbox.md"
+  local f="$PLANNER_DIR/inbox.md"
   if [[ ! -f "$f" ]]; then
-    mkdir -p "$DATA_DIR"
+    mkdir -p "$PLANNER_DIR"
     if [[ -f "$ROOT/templates/inbox.md" ]]; then
       cp "$ROOT/templates/inbox.md" "$f"
     else
@@ -101,9 +101,9 @@ ensure_inbox() {
 }
 
 ensure_goals() {
-  local f="$DATA_DIR/goals.md"
+  local f="$PLANNER_DIR/goals.md"
   if [[ ! -f "$f" ]]; then
-    mkdir -p "$DATA_DIR"
+    mkdir -p "$PLANNER_DIR"
     if [[ -f "$ROOT/templates/goals.md" ]]; then
       cp "$ROOT/templates/goals.md" "$f"
     else
@@ -130,11 +130,29 @@ case "$cmd" in
     ;;
 
   init)
-    mkdir -p "$DATA_DIR"/{daily,weekly,projects,log,archive}
+    mkdir -p "$PLANNER_DIR"/{daily,weekly,projects,log,archive}
     ensure_inbox >/dev/null
     ensure_goals >/dev/null
-    printf 'planner ready: %s\n' "$DATA_DIR"
+    printf 'planner ready: %s\n' "$PLANNER_DIR"
     printf 'next: plan today\n'
+    ;;
+
+  sync)
+    command -v git >/dev/null 2>&1 || die "git not found"
+    git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 \
+      || die "$ROOT is not a git repository"
+    git -C "$ROOT" remote get-url origin >/dev/null 2>&1 \
+      || die "no origin remote in $ROOT (git remote add origin <url>)"
+    if git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+      git -C "$ROOT" pull --rebase --autostash
+    fi
+    git -C "$ROOT" add -A
+    if ! git -C "$ROOT" diff --cached --quiet; then
+      git -C "$ROOT" commit -m "${1:-planner: $(date +%F %H:%M)}"
+    else
+      printf 'nothing to commit\n'
+    fi
+    git -C "$ROOT" push
     ;;
 
   today|day)
@@ -164,7 +182,7 @@ case "$cmd" in
     ensure_inbox >/dev/null
     text="$*"
     [[ $text == -* ]] || text="- [ ] $text"
-    printf '%s\n' "$text" >> "$DATA_DIR/inbox.md"
+    printf '%s\n' "$text" >> "$PLANNER_DIR/inbox.md"
     printf 'captured: %s\n' "$text"
     ;;
 
@@ -179,9 +197,9 @@ case "$cmd" in
     title="$*"
     slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | sed 's/^-//; s/-$//')
     [[ -n $slug ]] || die "cannot derive a filename from: $title"
-    f="$DATA_DIR/projects/$slug.md"
+    f="$PLANNER_DIR/projects/$slug.md"
     [[ -e $f ]] && die "already exists: $f"
-    mkdir -p "$DATA_DIR/projects"
+    mkdir -p "$PLANNER_DIR/projects"
     title_esc=${title//&/\\&}
     sed -e "s|{{TITLE}}|$title_esc|g" \
         -e "s|{{DATE}}|$(date +%F)|g" \
@@ -194,14 +212,14 @@ case "$cmd" in
     ;;
 
   edit)
-    [[ -d "$DATA_DIR/projects" ]] || die 'no projects yet — create one with: plan new "<title>"'
+    [[ -d "$PLANNER_DIR/projects" ]] || die 'no projects yet — create one with: plan new "<title>"'
     f=""
     if [[ $# -gt 0 ]]; then
-      f=$(rg -l -i -F -- "$*" "$DATA_DIR/projects" -g '*.md' 2>/dev/null | head -1 || true)
+      f=$(rg -l -i -F -- "$*" "$PLANNER_DIR/projects" -g '*.md' 2>/dev/null | head -1 || true)
       [[ -n $f ]] || die "no project matches: $*"
     elif command -v fzf >/dev/null 2>&1; then
-      picked=$(cd "$DATA_DIR/projects" && ls *.md 2>/dev/null | grep -v '^_' | fzf --prompt='project> ' || true)
-      [[ -n $picked ]] && f="$DATA_DIR/projects/$picked"
+      picked=$(cd "$PLANNER_DIR/projects" && ls *.md 2>/dev/null | grep -v '^_' | fzf --prompt='project> ' || true)
+      [[ -n $picked ]] && f="$PLANNER_DIR/projects/$picked"
     fi
     [[ -n $f && -f $f ]] || die "no project selected"
     open_file "$f"
@@ -210,7 +228,7 @@ case "$cmd" in
   projects)
     shopt -s nullglob
     found=0
-    for f in "$DATA_DIR"/projects/*.md; do
+    for f in "$PLANNER_DIR"/projects/*.md; do
       [[ $(basename "$f") == _* ]] && continue
       found=1
       status=$(sed -n 's/^status:[[:space:]]*//p' "$f" | head -1)
@@ -224,19 +242,19 @@ case "$cmd" in
   ls)
     project="${1:-}"
     if [[ -n $project ]]; then
-      f="$DATA_DIR/projects/${project%.md}.md"
+      f="$PLANNER_DIR/projects/${project%.md}.md"
       [[ -f $f ]] || die "no such project: $project"
       rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$f" || true
     else
-      rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$DATA_DIR" \
+      rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$PLANNER_DIR" \
         -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
         -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' \
-        | sed "s|^${DATA_DIR}/||" || true
+        | sed "s|^${PLANNER_DIR}/||" || true
     fi
     ;;
 
   qf)
-    rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$DATA_DIR" \
+    rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$PLANNER_DIR" \
       -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
       -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
       | sed -E 's/^([^:]+):([0-9]+):/\1:\2:1:/' || true
@@ -246,7 +264,7 @@ case "$cmd" in
     days="${1:-7}"
     limit=$(date -d "+${days} days" +%F)
     today=$(date +%F)
-    rg -n --no-heading 'due:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$DATA_DIR" \
+    rg -n --no-heading 'due:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$PLANNER_DIR" \
       -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
       -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
       | while IFS=: read -r file line text; do
@@ -256,7 +274,7 @@ case "$cmd" in
           if [[ $due > $limit ]]; then
             continue
           fi
-          rel="${file#"$DATA_DIR"/}"
+          rel="${file#"$PLANNER_DIR"/}"
           if [[ $due < $today ]]; then
             printf '%s  OVERDUE   %s:%s  %s\n' "$due" "$rel" "$line" "$text"
           else
@@ -271,7 +289,7 @@ case "$cmd" in
     while IFS= read -r line; do
       printf '%s\n' "$line"
       found=1
-    done < <(find "$DATA_DIR/projects" -maxdepth 1 -type f -name '*.md' ! -name '_*' \
+    done < <(find "$PLANNER_DIR/projects" -maxdepth 1 -type f -name '*.md' ! -name '_*' \
                -mtime +"$days" -printf '%TY-%Tm-%Td  %f\n' 2>/dev/null | sort)
     [[ $found -eq 1 ]] || printf 'No projects untouched for %s+ days.\n' "$days"
     ;;
@@ -280,7 +298,7 @@ case "$cmd" in
     [[ $# -gt 0 ]] || die "usage: plan done <text>"
     pattern="$*"
     mapfile -t matches < <(
-      rg -n --no-heading -F -- "$pattern" "$DATA_DIR" \
+      rg -n --no-heading -F -- "$pattern" "$PLANNER_DIR" \
         -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
         -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
         | rg ':[0-9]+:[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' || true
@@ -306,9 +324,9 @@ case "$cmd" in
     desc="$*"
     project="${project#\#}"
     month=$(date +%Y-%m)
-    f="$DATA_DIR/log/$month.md"
+    f="$PLANNER_DIR/log/$month.md"
     if [[ ! -f "$f" ]]; then
-      mkdir -p "$DATA_DIR/log"
+      mkdir -p "$PLANNER_DIR/log"
       printf '# Time log — %s\n\n<!-- Format: YYYY-MM-DD <duration> <project> <description> -->\n\n' "$month" > "$f"
     fi
     printf '%s %s %s' "$(date +%F)" "$duration" "$project" >> "$f"
@@ -336,7 +354,7 @@ case "$cmd" in
         ;;
     esac
     out=$(
-      { cat "$DATA_DIR"/log/*.md 2>/dev/null || true; } \
+      { cat "$PLANNER_DIR"/log/*.md 2>/dev/null || true; } \
       | awk -v s="$start" -v e="$end" '
           function mins(d,   a, p, h1, m1, h2, m2) {
             if (d ~ /^[0-9][0-9]?:[0-9][0-9]-[0-9][0-9]?:[0-9][0-9]$/) {

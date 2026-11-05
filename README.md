@@ -9,14 +9,17 @@ Everything is `.md` files. There is no database, no server, no plugin lock-in.
 `bin/plan` is a small bash script over `rg` and `awk`; delete it and the files
 still make sense.
 
-The repository is a **template**: all configuration is versioned here, all
-personal data lives in `data/` and is gitignored. Clone it anywhere, run the
-installer, and start clean.
+The repository **is** the planner: configuration and plans live in the same
+checkout. Clone your own copy, run the installer, and commit/push to keep it in
+sync across machines.
+
+> Use your own repository (fork it or create your own copy). Do not push your
+> daily notes to the upstream template.
 
 ## Install
 
 ```bash
-git clone git@github.com:andrezsegovia/planner.git ~/reps/planner
+git clone git@github.com:<you>/planner.git ~/reps/planner
 cd ~/reps/planner
 ./install.sh
 exec bash                 # or open a new terminal
@@ -25,19 +28,26 @@ plan init
 
 `install.sh` is idempotent. It does three things:
 
-1. Creates the data directories and starter files (`plan init`).
+1. Creates any missing planner directories and starter files (`plan init`).
 2. Adds a managed block to `~/.vimrc` that sources
    `integrations/vim/planner.vim`.
 3. Adds a managed block to `~/.bashrc` that sources
    `integrations/shell/planner.sh` (adds `bin/` to `PATH`).
 
-Nothing else is touched. `./uninstall.sh` removes the two blocks and keeps your
-data.
+Nothing else is touched. `./uninstall.sh` removes the two blocks and leaves
+your plans alone.
 
 The clone can live anywhere, not just `~/reps/planner`: the script, Vim file,
 shell file, and installer all derive their paths from their own location. If
-you move or re-clone the repository, run `./install.sh` again so the two source
-lines in your dotfiles point at the new path.
+you move or re-clone it, run `./install.sh` again so the two source lines in
+your dotfiles point at the new path.
+
+If you cloned this repository without making it your own, point it at your own
+remote before your first commit:
+
+```bash
+git remote set-url origin git@github.com:<you>/planner.git
+```
 
 ### Without the installer
 
@@ -48,20 +58,46 @@ plan init
 
 and in Vim: `:source /path/to/planner/integrations/vim/planner.vim`.
 
-## Fresh start
+## Sync across machines
 
-`data/` is ignored by git, so a fresh clone is already empty. To reset an
-existing planner without losing the old one:
+`plan sync` pulls (rebase), commits everything, and pushes:
 
 ```bash
-mv data "data.$(date +%F)"
-plan init
+plan sync
+plan sync "weekly review"
 ```
 
-Or, if you are sure:
+Manual equivalent:
 
 ```bash
-rm -rf data && plan init
+git add -A
+git commit -m "plans: $(date +%F)"
+git push
+```
+
+On a second machine, clone and install once, then `git pull` (or `plan sync`)
+to bring the plans over.
+
+A nightly sync from cron:
+
+```cron
+0 22 * * * cd ~/reps/planner && ./bin/plan sync >/dev/null 2>&1
+```
+
+Notes:
+
+- `plan sync` commits **everything** in the repository, config changes included.
+- Sync often (daily, or after the weekly review). Long gaps mean bigger rebase
+  conflicts. Conflicts are ordinary markdown; resolve them, then
+  `git rebase --continue`.
+- If `origin` is still the upstream template, `plan sync` will try to push
+  there. Check with `git remote -v`.
+- If you do not want to sync, simply do not commit. To keep plan files out of
+  `git status` without changing the repository, use `.git/info/exclude`:
+
+```bash
+printf '/daily/\n/weekly/\n/log/\n/projects/\n/archive/\n/inbox.md\n/goals.md\n' \
+  >> .git/info/exclude
 ```
 
 ## Layout
@@ -75,18 +111,32 @@ planner/
 │   └── shell/planner.sh        adds bin/ to PATH
 ├── install.sh
 ├── uninstall.sh
-└── data/                       gitignored, created by `plan init`
-    ├── inbox.md
-    ├── goals.md
-    ├── projects/
-    ├── daily/
-    ├── weekly/
-    ├── log/
-    └── archive/
+├── inbox.md                    capture
+├── goals.md                    2–3 outcomes per quarter
+├── projects/                   one file per project, tasks live here
+├── daily/YYYY-MM-DD.md         the day's plan and log
+├── weekly/YYYY-Www.md          the Friday review
+├── log/YYYY-MM.md              time, one line per block
+└── archive/                    finished or abandoned, out of the way
 ```
 
-`PLANNER_DATA` overrides the data directory (useful for testing or keeping one
-clone's data elsewhere). `EDITOR` overrides the editor (default `vim`).
+`PLANNER_DIR` overrides the planner directory (default: the repo root; useful
+for testing). `EDITOR` overrides the editor (default `vim`).
+
+## Fresh start
+
+Because plans are tracked, a clone brings the plans with it. To reset an
+existing planner:
+
+```bash
+rm -rf daily weekly log projects archive inbox.md goals.md
+plan init
+git add -A && git commit -m "reset planner"
+```
+
+For a completely new, unrelated planner, create a new repository from this one
+(GitHub's "Use this template", or clone upstream into a new repo), then clone
+that new repository and run `./install.sh`.
 
 ## The rules
 
@@ -119,7 +169,12 @@ plan add "idea that just appeared"    # never act on it now
 plan log 2h website sitemap           # one line when you stop
 ```
 
-Evening, 5 minutes: fill `## Log` with what actually happened and why.
+Evening, 5 minutes: fill `## Log` with what actually happened and why. Then
+sync if you work from another machine later:
+
+```bash
+plan sync
+```
 
 ## Every Friday
 
@@ -134,6 +189,7 @@ plan due 7          # what is due in the next week
 plan stale 14       # projects nobody touched
 plan projects       # status and open-task count
 plan report week    # where the hours went
+plan sync "weekly review"
 ```
 
 The review produces next week's focus per project. If a project has no outcome
@@ -143,7 +199,8 @@ or no movement for two weeks, pause or archive it.
 
 | Command | What it does |
 |---|---|
-| `plan init` | create data dirs and starter files |
+| `plan init` | create missing dirs and starter files |
+| `plan sync [message]` | pull, commit everything, push |
 | `plan` / `plan today` | open or create today's file |
 | `plan week [-1]` | open this week's review (or another week) |
 | `plan inbox` | open the inbox |
@@ -193,24 +250,26 @@ Mappings installed by `install.sh`:
 `<leader>` is whatever you set in your vimrc. The quickfix list uses absolute
 paths, so `<leader>pl` works from any directory.
 
-## Backups
+## Configuration lives here
 
-`data/` is deliberately untracked, so cloning the repo never brings old plans
-along. That also means git does not back it up. Pick one:
+| What | Where |
+|---|---|
+| CLI behaviour | `bin/plan` |
+| File templates | `templates/` |
+| Vim mappings and functions | `integrations/vim/planner.vim` |
+| Shell `PATH` integration | `integrations/shell/planner.sh` |
+| Dotfile installation | `install.sh`, `uninstall.sh` |
 
-- `rsync` or `tar` `data/` somewhere on a schedule;
-- keep a second private repository that contains only `data/`;
-- or remove `/data/` from `.gitignore` and commit your plans in your own fork,
-  accepting that clones are no longer clean.
-
-The repository itself is the reusable part.
+The dotfiles only contain one `source` line each, inside a marked block. All
+the real configuration is versioned in this repository.
 
 ## Uninstall
 
 ```bash
-./uninstall.sh            # remove Vim/shell integration, keep data/
-./uninstall.sh --purge    # also delete data/, with confirmation
+./uninstall.sh
 ```
+
+Removes the Vim and shell blocks. Your plans remain in the repository.
 
 ## If it feels heavy
 

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # uninstall.sh — remove the managed blocks from ~/.vimrc and ~/.bashrc.
-# Your planner data is kept unless you ask to purge it.
+# Your plans are files in this repository; this script never touches them.
 #
-#   ./uninstall.sh            remove integrations, keep data/
-#   ./uninstall.sh --purge    also delete data/ (asks for confirmation)
+#   ./uninstall.sh
 
 set -euo pipefail
 
@@ -34,15 +33,4 @@ remove_block() {
 remove_block "$HOME/.vimrc" '" >>> planner >>>' '" <<< planner <<<'
 remove_block "$HOME/.bashrc" '# >>> planner >>>' '# <<< planner <<<'
 
-if [[ ${1:-} == "--purge" ]]; then
-  printf 'Delete %s/data permanently? [y/N] ' "$ROOT"
-  read -r answer
-  if [[ $answer == [yY]* ]]; then
-    rm -rf "$ROOT/data"
-    printf 'deleted %s/data\n' "$ROOT"
-  else
-    printf 'kept %s/data\n' "$ROOT"
-  fi
-else
-  printf 'data kept in %s/data\n' "$ROOT"
-fi
+printf 'your plans remain in %s\n' "$ROOT"

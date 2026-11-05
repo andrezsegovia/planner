@@ -1,0 +1,8 @@
+# Personal planner data. Created by `plan init`; never committed.
+/data/
+
+# Editor and OS noise
+*.swp
+*.swo
+*.tmp
+.DS_Store

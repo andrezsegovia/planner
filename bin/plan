@@ -1,0 +1,385 @@
+#!/usr/bin/env bash
+# plan — a small, transparent markdown planner.
+#
+# Every subcommand is just files, rg and awk. Nothing is stored anywhere else.
+# Run `plan help` for the command list.
+
+set -euo pipefail
+
+# All paths are derived from this script, so the repo can be cloned anywhere.
+# Runtime data lives in ROOT/data and is gitignored; PLANNER_DATA overrides it.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DATA_DIR="${PLANNER_DATA:-$ROOT/data}"
+
+die() { printf 'plan: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+plan — markdown planner
+
+  plan init                 create the data directories and starter files
+  plan                      open (or create) today's plan
+  plan today                same as above
+  plan week [OFFSET]        open the weekly review (OFFSET in weeks, e.g. -1)
+  plan inbox                open the inbox
+
+  plan add <text>           capture a line in inbox.md
+  plan new <title> [--path] create a project from the template
+  plan edit [query]         open a project (fzf when no query)
+  plan projects             list projects, status, open task count
+
+  plan ls [project]         list open tasks
+  plan qf                   open tasks as quickfix entries (file:line:col:text)
+  plan due [days]           open tasks due within N days (default 7)
+  plan stale [days]         projects untouched for N days (default 14)
+  plan done <text>          mark the single matching open task as done
+
+  plan log <dur> <project> [description]
+                            log time: plan log 2h website sitemap
+                            duration: 2h, 1.5h, 45m, or 09:00-11:00
+  plan report [week|month|all]
+                            sum logged time by project
+
+  plan path [today|week|inbox|goals]
+                            print a path, creating the file if needed
+                            (used by the Vim mappings)
+
+Files:
+  data/            gitignored: inbox.md, goals.md, projects/, daily/,
+                   weekly/, log/, archive/
+  templates/       starters copied by `plan init` and the commands
+  bin/plan         this script
+  integrations/    Vim and shell configuration (installed by install.sh)
+
+Environment:
+  PLANNER_DATA     override the data directory (default: <repo>/data)
+  EDITOR           editor used by `plan today`, `plan week`, ... (default: vim)
+EOF
+}
+
+ensure_today() {
+  local f
+  f="$DATA_DIR/daily/$(date +%F).md"
+  if [[ ! -f "$f" ]]; then
+    mkdir -p "$DATA_DIR/daily"
+    sed -e "s|{{DATE}}|$(date +%F)|g" \
+        -e "s|{{DOW}}|$(date +%A)|g" \
+        "$ROOT/templates/daily.md" > "$f"
+  fi
+  printf '%s\n' "$f"
+}
+
+ensure_week() {
+  local offset="${1:-0}" base dow mon sun week f
+  base=$(date -d "$(date +%F) ${offset} weeks" +%F)
+  dow=$(date -d "$base" +%u)
+  mon=$(date -d "$base -$((dow - 1)) days" +%F)
+  sun=$(date -d "$mon +6 days" +%F)
+  week=$(date -d "$base" +%G-W%V)
+  f="$DATA_DIR/weekly/$week.md"
+  if [[ ! -f "$f" ]]; then
+    mkdir -p "$DATA_DIR/weekly"
+    sed -e "s|{{ISOWEEK}}|$week|g" \
+        -e "s|{{MON}}|$mon|g" \
+        -e "s|{{SUN}}|$sun|g" \
+        "$ROOT/templates/weekly.md" > "$f"
+  fi
+  printf '%s\n' "$f"
+}
+
+ensure_inbox() {
+  local f="$DATA_DIR/inbox.md"
+  if [[ ! -f "$f" ]]; then
+    mkdir -p "$DATA_DIR"
+    if [[ -f "$ROOT/templates/inbox.md" ]]; then
+      cp "$ROOT/templates/inbox.md" "$f"
+    else
+      printf '# Inbox\n\n- \n' > "$f"
+    fi
+  fi
+  printf '%s\n' "$f"
+}
+
+ensure_goals() {
+  local f="$DATA_DIR/goals.md"
+  if [[ ! -f "$f" ]]; then
+    mkdir -p "$DATA_DIR"
+    if [[ -f "$ROOT/templates/goals.md" ]]; then
+      cp "$ROOT/templates/goals.md" "$f"
+    else
+      printf '# Goals\n\n' > "$f"
+    fi
+  fi
+  printf '%s\n' "$f"
+}
+
+open_file() {
+  if [[ -t 0 && -t 1 ]]; then
+    exec ${EDITOR:-vim} "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+cmd="${1:-today}"
+[[ $# -gt 0 ]] && shift
+
+case "$cmd" in
+  help|-h|--help)
+    usage
+    ;;
+
+  init)
+    mkdir -p "$DATA_DIR"/{daily,weekly,projects,log,archive}
+    ensure_inbox >/dev/null
+    ensure_goals >/dev/null
+    printf 'planner ready: %s\n' "$DATA_DIR"
+    printf 'next: plan today\n'
+    ;;
+
+  today|day)
+    open_file "$(ensure_today)"
+    ;;
+
+  week|weekly)
+    open_file "$(ensure_week "${1:-0}")"
+    ;;
+
+  inbox)
+    open_file "$(ensure_inbox)"
+    ;;
+
+  path)
+    case "${1:-today}" in
+      today|day)      ensure_today ;;
+      week|weekly)    ensure_week 0 ;;
+      inbox)          ensure_inbox ;;
+      goals)          ensure_goals ;;
+      *)              die "unknown path: ${1:-}" ;;
+    esac
+    ;;
+
+  add)
+    [[ $# -gt 0 ]] || die "usage: plan add <text>"
+    ensure_inbox >/dev/null
+    text="$*"
+    [[ $text == -* ]] || text="- [ ] $text"
+    printf '%s\n' "$text" >> "$DATA_DIR/inbox.md"
+    printf 'captured: %s\n' "$text"
+    ;;
+
+  new)
+    [[ $# -gt 0 ]] || die "usage: plan new <title> [--path]"
+    print_only=0
+    if [[ ${!#} == "--path" ]]; then
+      print_only=1
+      set -- "${@:1:$#-1}"
+    fi
+    [[ $# -gt 0 ]] || die "usage: plan new <title> [--path]"
+    title="$*"
+    slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | sed 's/^-//; s/-$//')
+    [[ -n $slug ]] || die "cannot derive a filename from: $title"
+    f="$DATA_DIR/projects/$slug.md"
+    [[ -e $f ]] && die "already exists: $f"
+    mkdir -p "$DATA_DIR/projects"
+    title_esc=${title//&/\\&}
+    sed -e "s|{{TITLE}}|$title_esc|g" \
+        -e "s|{{DATE}}|$(date +%F)|g" \
+        "$ROOT/templates/project.md" > "$f"
+    if [[ $print_only -eq 1 ]]; then
+      printf '%s\n' "$f"
+    else
+      open_file "$f"
+    fi
+    ;;
+
+  edit)
+    [[ -d "$DATA_DIR/projects" ]] || die 'no projects yet — create one with: plan new "<title>"'
+    f=""
+    if [[ $# -gt 0 ]]; then
+      f=$(rg -l -i -F -- "$*" "$DATA_DIR/projects" -g '*.md' 2>/dev/null | head -1 || true)
+      [[ -n $f ]] || die "no project matches: $*"
+    elif command -v fzf >/dev/null 2>&1; then
+      picked=$(cd "$DATA_DIR/projects" && ls *.md 2>/dev/null | grep -v '^_' | fzf --prompt='project> ' || true)
+      [[ -n $picked ]] && f="$DATA_DIR/projects/$picked"
+    fi
+    [[ -n $f && -f $f ]] || die "no project selected"
+    open_file "$f"
+    ;;
+
+  projects)
+    shopt -s nullglob
+    found=0
+    for f in "$DATA_DIR"/projects/*.md; do
+      [[ $(basename "$f") == _* ]] && continue
+      found=1
+      status=$(sed -n 's/^status:[[:space:]]*//p' "$f" | head -1)
+      open=$(rg -c '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$f" 2>/dev/null || echo 0)
+      outcome=$(sed -n 's/^outcome:[[:space:]]*//p' "$f" | head -1)
+      printf '%-30s %-8s %2s open  %s\n' "$(basename "$f" .md)" "${status:-?}" "$open" "$outcome"
+    done
+    [[ $found -eq 1 ]] || printf 'No projects yet. Create one with: plan new "<title>"\n'
+    ;;
+
+  ls)
+    project="${1:-}"
+    if [[ -n $project ]]; then
+      f="$DATA_DIR/projects/${project%.md}.md"
+      [[ -f $f ]] || die "no such project: $project"
+      rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$f" || true
+    else
+      rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$DATA_DIR" \
+        -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
+        -g '!daily/**' -g '!weekly/**' -g '!log/**' \
+        | sed "s|^${PLANNER_DIR}/||" || true
+    fi
+    ;;
+
+  qf)
+    rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$DATA_DIR" \
+      -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
+      -g '!daily/**' -g '!weekly/**' -g '!log/**' 2>/dev/null \
+      | sed -E 's/^([^:]+):([0-9]+):/\1:\2:1:/' || true
+    ;;
+
+  due)
+    days="${1:-7}"
+    limit=$(date -d "+${days} days" +%F)
+    today=$(date +%F)
+    rg -n --no-heading 'due:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$DATA_DIR" \
+      -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
+      -g '!daily/**' -g '!weekly/**' -g '!log/**' 2>/dev/null \
+      | while IFS=: read -r file line text; do
+          [[ $text =~ ^[[:space:]]*-[[:space:]]\[[[:space:]]\][[:space:]]+[^[:space:]] ]] || continue
+          due="${text#*due:}"
+          due="${due:0:10}"
+          if [[ $due > $limit ]]; then
+            continue
+          fi
+          rel="${file#"$DATA_DIR"/}"
+          if [[ $due < $today ]]; then
+            printf '%s  OVERDUE   %s:%s  %s\n' "$due" "$rel" "$line" "$text"
+          else
+            printf '%s  due       %s:%s  %s\n' "$due" "$rel" "$line" "$text"
+          fi
+        done | sort || true
+    ;;
+
+  stale)
+    days="${1:-14}"
+    found=0
+    while IFS= read -r line; do
+      printf '%s\n' "$line"
+      found=1
+    done < <(find "$DATA_DIR/projects" -maxdepth 1 -type f -name '*.md' ! -name '_*' \
+               -mtime +"$days" -printf '%TY-%Tm-%Td  %f\n' 2>/dev/null | sort)
+    [[ $found -eq 1 ]] || printf 'No projects untouched for %s+ days.\n' "$days"
+    ;;
+
+  done)
+    [[ $# -gt 0 ]] || die "usage: plan done <text>"
+    pattern="$*"
+    mapfile -t matches < <(
+      rg -n --no-heading -F -- "$pattern" "$DATA_DIR" \
+        -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
+        -g '!daily/**' -g '!weekly/**' -g '!log/**' 2>/dev/null \
+        | rg ':[0-9]+:[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' || true
+    )
+    [[ ${#matches[@]} -gt 0 ]] || die "no open task matches: $pattern"
+    if [[ ${#matches[@]} -gt 1 ]]; then
+      printf '%s\n' "${matches[@]}"
+      die "ambiguous — be more specific"
+    fi
+    file="${matches[0]%%:*}"
+    rest="${matches[0]#*:}"
+    line="${rest%%:*}"
+    awk -v n="$line" 'NR == n { sub(/\[ \]/, "[x]") } { print }' "$file" > "$file.tmp"
+    mv "$file.tmp" "$file"
+    printf 'done: %s\n' "$(sed -n "${line}p" "$file")"
+    ;;
+
+  log)
+    [[ $# -ge 2 ]] || die "usage: plan log <duration> <project> [description]"
+    duration="$1"
+    project="$2"
+    shift 2
+    desc="$*"
+    project="${project#\#}"
+    month=$(date +%Y-%m)
+    f="$DATA_DIR/log/$month.md"
+    if [[ ! -f "$f" ]]; then
+      mkdir -p "$DATA_DIR/log"
+      printf '# Time log — %s\n\n<!-- Format: YYYY-MM-DD <duration> <project> <description> -->\n\n' "$month" > "$f"
+    fi
+    printf '%s %s %s' "$(date +%F)" "$duration" "$project" >> "$f"
+    [[ -n $desc ]] && printf ' %s' "$desc" >> "$f"
+    printf '\n' >> "$f"
+    printf 'logged: %s %s %s\n' "$duration" "$project" "$desc"
+    ;;
+
+  report)
+    case "${1:-week}" in
+      week)
+        start=$(date -d "$(date +%F) -$(( $(date +%u) - 1 )) days" +%F)
+        end=$(date -d "$start +6 days" +%F)
+        ;;
+      month)
+        start=$(date +%Y-%m-01)
+        end=$(date -d "$start +1 month -1 day" +%F)
+        ;;
+      all)
+        start=0000-00-00
+        end=9999-99-99
+        ;;
+      *)
+        die "usage: plan report [week|month|all]"
+        ;;
+    esac
+    out=$(
+      { cat "$DATA_DIR"/log/*.md 2>/dev/null || true; } \
+      | awk -v s="$start" -v e="$end" '
+          function mins(d,   a, p, h1, m1, h2, m2) {
+            if (d ~ /^[0-9][0-9]?:[0-9][0-9]-[0-9][0-9]?:[0-9][0-9]$/) {
+              split(d, p, "-")
+              split(p[1], a, ":"); h1 = a[1] * 60 + a[2]
+              split(p[2], a, ":"); h2 = a[1] * 60 + a[2]
+              return h2 - h1
+            }
+            if (d ~ /^[0-9.]+h$/) { sub(/h$/, "", d); return d * 60 }
+            if (d ~ /^[0-9]+m$/) { sub(/m$/, "", d); return d + 0 }
+            return 0
+          }
+          $1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && $1 >= s && $1 <= e {
+            m = mins($2)
+            if (m <= 0) next
+            total[$3] += m
+            grand += m
+          }
+          END {
+            if (grand == 0) exit
+            for (p in total) printf "%d\t%s\n", total[p], p
+            printf "%d\t__TOTAL__\n", grand
+          }
+        ' | sort -rn \
+      | awk -F'\t' '
+          $2 == "__TOTAL__" { total = $1; next }
+          { h = int($1 / 60); m = $1 % 60; printf "%dh%02dm  %s\n", h, m, $2 }
+          END {
+            if (total != "") {
+              h = int(total / 60); m = total % 60
+              printf "-----\n%dh%02dm  total\n", h, m
+            }
+          }
+        '
+    )
+    if [[ -n $out ]]; then
+      printf '%s\n' "$out"
+    else
+      printf 'No time logged between %s and %s.\n' "$start" "$end"
+    fi
+    ;;
+
+  *)
+    die "unknown command: $cmd (try: plan help)"
+    ;;
+esac

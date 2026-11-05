@@ -229,16 +229,16 @@ case "$cmd" in
       rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$f" || true
     else
       rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$DATA_DIR" \
-        -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
-        -g '!daily/**' -g '!weekly/**' -g '!log/**' \
+        -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
+        -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' \
         | sed "s|^${DATA_DIR}/||" || true
     fi
     ;;
 
   qf)
     rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$DATA_DIR" \
-      -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
-      -g '!daily/**' -g '!weekly/**' -g '!log/**' 2>/dev/null \
+      -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
+      -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
       | sed -E 's/^([^:]+):([0-9]+):/\1:\2:1:/' || true
     ;;
 
@@ -247,8 +247,8 @@ case "$cmd" in
     limit=$(date -d "+${days} days" +%F)
     today=$(date +%F)
     rg -n --no-heading 'due:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$DATA_DIR" \
-      -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
-      -g '!daily/**' -g '!weekly/**' -g '!log/**' 2>/dev/null \
+      -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
+      -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
       | while IFS=: read -r file line text; do
           [[ $text =~ ^[[:space:]]*-[[:space:]]\[[[:space:]]\][[:space:]]+[^[:space:]] ]] || continue
           due="${text#*due:}"
@@ -281,8 +281,8 @@ case "$cmd" in
     pattern="$*"
     mapfile -t matches < <(
       rg -n --no-heading -F -- "$pattern" "$DATA_DIR" \
-        -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
-        -g '!daily/**' -g '!weekly/**' -g '!log/**' 2>/dev/null \
+        -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
+        -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
         | rg ':[0-9]+:[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' || true
     )
     [[ ${#matches[@]} -gt 0 ]] || die "no open task matches: $pattern"

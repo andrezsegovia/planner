@@ -231,7 +231,7 @@ case "$cmd" in
       rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$DATA_DIR" \
         -g '*.md' -g '!README.md' -g '!archive/**' -g '!templates/**' \
         -g '!daily/**' -g '!weekly/**' -g '!log/**' \
-        | sed "s|^${PLANNER_DIR}/||" || true
+        | sed "s|^${DATA_DIR}/||" || true
     fi
     ;;
 

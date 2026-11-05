@@ -16,6 +16,9 @@ sync across machines.
 > Use your own repository (fork it or create your own copy). Do not push your
 > daily notes to the upstream template.
 
+New here? [`docs/getting-started.md`](docs/getting-started.md) is a five-step
+walkthrough with a filled-in week you can run in a scratch directory.
+
 ## Install
 
 ```bash
@@ -109,6 +112,7 @@ planner/
 ├── integrations/
 │   ├── vim/planner.vim         mappings and functions
 │   └── shell/planner.sh        adds bin/ to PATH
+├── docs/                       getting-started walkthrough and worked example
 ├── install.sh
 ├── uninstall.sh
 ├── inbox.md                    capture

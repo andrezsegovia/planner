@@ -254,7 +254,7 @@ case "$cmd" in
     else
       rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$PLANNER_DIR" \
         -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
-        -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' \
+        -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' -g '!**/docs/**' \
         | sed "s|^${PLANNER_DIR}/||" || true
     fi
     ;;
@@ -262,7 +262,7 @@ case "$cmd" in
   qf)
     rg -n --no-heading '^[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' "$PLANNER_DIR" \
       -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
-      -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
+      -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' -g '!**/docs/**' 2>/dev/null \
       | sed -E 's/^([^:]+):([0-9]+):/\1:\2:1:/' || true
     ;;
 
@@ -272,7 +272,7 @@ case "$cmd" in
     today=$(date +%F)
     rg -n --no-heading 'due:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "$PLANNER_DIR" \
       -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
-      -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
+      -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' -g '!**/docs/**' 2>/dev/null \
       | while IFS=: read -r file line text; do
           [[ $text =~ ^[[:space:]]*-[[:space:]]\[[[:space:]]\][[:space:]]+[^[:space:]] ]] || continue
           due="${text#*due:}"
@@ -304,9 +304,10 @@ case "$cmd" in
     [[ $# -gt 0 ]] || die "usage: plan done <text>"
     pattern="$*"
     mapfile -t matches < <(
-      rg -n --no-heading -F -- "$pattern" "$PLANNER_DIR" \
+      rg -n --no-heading -F \
         -g '*.md' -g '!**/README.md' -g '!**/archive/**' -g '!**/templates/**' \
-        -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' 2>/dev/null \
+        -g '!**/daily/**' -g '!**/weekly/**' -g '!**/log/**' -g '!**/docs/**' \
+        -- "$pattern" "$PLANNER_DIR" 2>/dev/null \
         | rg ':[0-9]+:[[:space:]]*- \[ \][[:space:]]+[^[:space:]]' || true
     )
     [[ ${#matches[@]} -gt 0 ]] || die "no open task matches: $pattern"
